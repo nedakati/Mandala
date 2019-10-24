@@ -13,8 +13,6 @@ class ViewController: UIViewController {
     // MARK: - Private properties
     
     private var colorsView: ColorsView!
-    private var imageView: UIImageView!
-    private var mainImageView: UIImageView!
     private var colorsButton: UIButton!
     private var buttonsStackView: UIStackView!
     private var resetButton: UIButton!
@@ -23,6 +21,8 @@ class ViewController: UIViewController {
     private var brushView: SliderView!
     private var opacityView: SliderView!
     private var containerView: UIView!
+    
+    private var drawingPad: DrawingPad!
     
     private var selectedColor: UIColor = .black
     
@@ -56,40 +56,6 @@ class ViewController: UIViewController {
         setupConstraints()
     }
     
-    // MARK: - Touch event
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        hideViews()
-        guard let touch = touches.first else { return }
-        let location = touch.location(in: view)
-        if imageView.frame.contains(location) {
-            lastPoint = location
-            swiped = false
-        }
-    }
-    
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        swiped = true
-        let location = touch.location(in: view)
-        if imageView.frame.contains(location) {
-            draw(from: lastPoint, to: location)
-            lastPoint = location
-        }
-    }
-    
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if !swiped {
-            draw(from: lastPoint, to: lastPoint)
-        }
-        UIGraphicsBeginImageContext(mainImageView.frame.size)
-        mainImageView.image?.draw(in: mainImageView.bounds, blendMode: .normal, alpha: 1.0)
-        imageView.image?.draw(in: imageView.bounds, blendMode: .normal, alpha: opacity)
-        mainImageView.image = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        imageView.image = nil
-    }
-    
     // MARK: - Private methods
     
     private func setupView() {
@@ -100,17 +66,11 @@ class ViewController: UIViewController {
         containerView.backgroundColor = .white
         view.addSubview(containerView)
         
-        mainImageView = UIImageView()
-        mainImageView.translatesAutoresizingMaskIntoConstraints = false
-        mainImageView.contentMode = .scaleToFill
-        mainImageView.isUserInteractionEnabled = true
-        containerView.addSubview(mainImageView)
-        
-        imageView = UIImageView()
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleToFill
-        imageView.isUserInteractionEnabled = true
-        containerView.addSubview(imageView)
+        drawingPad = DrawingPad()
+        drawingPad.translatesAutoresizingMaskIntoConstraints = false
+        drawingPad.delegate = self
+        drawingPad.contentMode = .scaleToFill
+        containerView.addSubview(drawingPad)
         
         buttonsStackView = UIStackView()
         buttonsStackView.translatesAutoresizingMaskIntoConstraints = false
@@ -176,15 +136,10 @@ class ViewController: UIViewController {
             containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             containerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
             
-            imageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            imageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            
-            mainImageView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            mainImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            mainImageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            mainImageView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            drawingPad.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            drawingPad.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            drawingPad.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            drawingPad.topAnchor.constraint(equalTo: containerView.topAnchor),
             
             buttonsStackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -30),
             buttonsStackView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -214,24 +169,6 @@ class ViewController: UIViewController {
             opacityView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             opacityView.widthAnchor.constraint(equalToConstant: 70)
             ])
-    }
-    
-    private func draw(from source: CGPoint, to destination: CGPoint) {
-        UIGraphicsBeginImageContext(view.frame.size)
-        imageView.image?.draw(in: view.bounds)
-        
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        context.move(to: source)
-        context.addLine(to: destination)
-        context.setLineWidth(brushWidth)
-        context.setStrokeColor(selectedColor.cgColor)
-        context.setBlendMode(.normal)
-        context.setLineCap(.round)
-        context.strokePath()
-        
-        imageView.image = UIGraphicsGetImageFromCurrentImageContext()
-        imageView.alpha = opacity
-        UIGraphicsEndImageContext()
     }
     
     private func hideViews() {
@@ -273,8 +210,7 @@ class ViewController: UIViewController {
     
     @objc private func didTapOnResetButton() {
         hideViews()
-        mainImageView.image = nil
-        imageView.image = nil
+        drawingPad.reset()
     }
     
     @objc private func didTapOnBrushButton() {
@@ -300,6 +236,7 @@ extension ViewController: ColorViewDelegate {
     
     func didSelectColor(_ color: PencilColor) {
         selectedColor = color.color
+        drawingPad.pencilColor = color
         brushView.selectedColor = color.color
         opacityView.selectedColor = color.color
     }
@@ -314,13 +251,22 @@ extension ViewController: SliderViewDelegate {
     
     func didChangeOpacity(to value: CGFloat) {
         opacity = value
+        drawingPad.pencilOpacity = value
     }
     
     func didChangeBrushSize(to value: CGFloat) {
         brushWidth = value
+        drawingPad.pencilWidth = value
     }
     
     func hideBrushView() {
+        hideViews()
+    }
+}
+
+extension ViewController: DrawingPadDelegate {
+    
+    func touchBegan() {
         hideViews()
     }
 }
